@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0a0c">
+  <title>AegisKV · Attention-aware memory lab</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme: dark; --bg:#0a0a0c; --card:#121318; --line:#262730; --muted:#898a98; --green:#34d399; --cyan:#38bdf8; --amber:#fbbf24; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(ellipse at 75% -15%,#102b28 0,transparent 35%),var(--bg); color:#f5f5f6; font-family:Manrope,system-ui,sans-serif; }
+    .mono { font-family:"DM Mono",monospace; }
+    .card { background:rgba(18,19,24,.92); border:1px solid var(--line); border-radius:14px; }
+    .input { width:100%; border:1px solid #343640; background:#0d0e12; border-radius:8px; padding:9px 10px; color:#f4f4f5; font:12px "DM Mono",monospace; }
+    .input:focus { outline:1px solid var(--green); border-color:var(--green); }
+    .btn { border-radius:8px; padding:10px 13px; font-size:12px; font-weight:700; transition:.15s; }
+    .btn:disabled { opacity:.5; cursor:wait; }
+    .btn-primary { background:var(--green); color:#05251a; }
+    .btn-primary:hover { background:#6ee7b7; }
+    .btn-secondary { background:#1b1d24; border:1px solid #343640; color:#e4e4e7; }
+    .btn-secondary:hover { border-color:#5a5d6b; }
+    .label { font-size:10px; letter-spacing:.11em; color:var(--muted); text-transform:uppercase; font-weight:700; }
+    .frame { height:43px; border:1px solid #2c2e38; background:#0d0e12; border-radius:5px; padding:4px; display:flex; flex-direction:column; justify-content:space-between; overflow:hidden; }
+    .frame.sink { border-color:#fbbf24; box-shadow:inset 0 0 12px #fbbf2422; }
+    .frame .tenant { height:5px; border-radius:4px; }
+    .table-row { border-top:1px solid #252630; }
+    .status-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 10px #34d39999; display:inline-block; }
+    .chart-wrap { height:250px; position:relative; }
+    input[type=range] { accent-color:var(--green); }
+  </style>
+</head>
+<body>
+  <main class="max-w-[1500px] mx-auto px-4 py-6 md:px-8">
+    <header class="flex flex-col gap-5 md:flex-row md:items-end md:justify-between mb-7">
+      <div>
+        <div class="label mb-2 flex items-center gap-2"><span class="status-dot"></span> Discrete-event memory lab</div>
+        <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight">Aegis<span class="text-emerald-400">KV</span></h1>
+        <p class="text-sm text-zinc-400 mt-2">Attention-aware virtual memory · multi-tenant KV cache simulator</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="runButton" class="btn btn-primary">Run comparative benchmark</button>
+        <button id="liveButton" class="btn btn-secondary">Start live visualizer</button>
+        <button id="exportButton" class="btn btn-secondary">Export report artifacts</button>
+      </div>
+    </header>
+
+    <section class="grid grid-cols-1 xl:grid-cols-[270px_minmax(0,1fr)] gap-4">
+      <aside class="card p-5 h-fit">
+        <div class="flex items-center justify-between mb-4"><h2 class="font-bold">Simulation controls</h2><span class="label">seeded trace</span></div>
+        <div class="space-y-4">
+          <label class="block"><span class="label flex justify-between mb-2">Physical frames <span id="framesValue" class="mono text-zinc-300">64</span></span><input id="frames" class="w-full" type="range" min="32" max="256" step="16" value="64"></label>
+          <label class="block"><span class="label flex justify-between mb-2">Concurrent tenants <span id="processesValue" class="mono text-zinc-300">8</span></span><input id="processes" class="w-full" type="range" min="4" max="16" step="1" value="8"></label>
+          <label class="block"><span class="label flex justify-between mb-2">Trace references <span id="traceValue" class="mono text-zinc-300">2500</span></span><input id="traceLength" class="w-full" type="range" min="500" max="5000" step="500" value="2500"></label>
+          <div class="pt-3 border-t border-zinc-800">
+            <div class="label mb-3">AWPR utility weights</div>
+            <label class="block mb-3"><span class="flex justify-between text-xs text-zinc-400 mb-1">Recency <span id="recencyValue" class="mono">0.25</span></span><input id="recency" class="w-full" type="range" min="0" max="1" step="0.05" value="0.25"></label>
+            <label class="block mb-3"><span class="flex justify-between text-xs text-zinc-400 mb-1">Frequency <span id="frequencyValue" class="mono">0.15</span></span><input id="frequency" class="w-full" type="range" min="0" max="1" step="0.05" value="0.15"></label>
+            <label class="block"><span class="flex justify-between text-xs text-zinc-400 mb-1">Semantic attention <span id="semanticValue" class="mono">0.60</span></span><input id="semantic" class="w-full" type="range" min="0" max="1" step="0.05" value="0.60"></label>
+          </div>
+          <div class="text-[11px] leading-5 text-zinc-500">Each policy replays the same trace. Latency includes translation, VRAM, swap-in, and dirty write-back costs.</div>
+        </div>
+      </aside>
+
+      <div class="space-y-4 min-w-0">
+        <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <article class="card p-4"><div class="label">Policy winner · faults</div><div id="winnerFaults" class="text-xl font-bold mt-2">—</div><div id="winnerFaultsDetail" class="text-xs text-zinc-500 mt-1">Run a benchmark</div></article>
+          <article class="card p-4"><div class="label">Best EMAT</div><div id="bestEmat" class="text-xl font-bold mt-2">—</div><div class="text-xs text-zinc-500 mt-1">nanoseconds / reference</div></article>
+          <article class="card p-4"><div class="label">AWPR sink evictions</div><div id="sinkCount" class="text-xl font-bold mt-2">—</div><div class="text-xs text-zinc-500 mt-1">attention sink pages</div></article>
+          <article class="card p-4"><div class="label">Trace progress</div><div id="progress" class="text-xl font-bold mt-2">Idle</div><div id="traceDetail" class="text-xs text-zinc-500 mt-1">Seed 42 · deterministic</div></article>
+        </section>
+
+        <section class="card p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div><h2 class="font-bold">Physical memory frames</h2><p id="memoryCaption" class="text-xs text-zinc-500 mt-1">Run the live visualizer to step through AWPR and LRU.</p></div>
+            <div class="flex gap-4 text-[10px] text-zinc-400"><span class="flex items-center gap-1"><i class="w-2 h-2 rounded-full bg-amber-400"></i>Attention sink</span><span class="flex items-center gap-1"><i class="w-2 h-2 rounded-full bg-emerald-400"></i>Occupied</span></div>
+          </div>
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div><div class="label mb-2">AWPR · semantic retention</div><div id="frameGridAwpr" class="grid grid-cols-8 sm:grid-cols-12 lg:grid-cols-16 gap-1.5"></div></div>
+            <div><div class="label mb-2">LRU · recency baseline</div><div id="frameGridLru" class="grid grid-cols-8 sm:grid-cols-12 lg:grid-cols-16 gap-1.5"></div></div>
+          </div>
+        </section>
+
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <article class="card p-5"><h2 class="font-bold mb-1">Faults & sink evictions</h2><p class="text-xs text-zinc-500 mb-3">Comparative policy outcomes</p><div class="chart-wrap"><canvas id="faultChart"></canvas></div></article>
+          <article class="card p-5"><h2 class="font-bold mb-1">Effective access time</h2><p class="text-xs text-zinc-500 mb-3">Nanoseconds per memory reference</p><div class="chart-wrap"><canvas id="ematChart"></canvas></div></article>
+          <article class="card p-5"><h2 class="font-bold mb-1">Cumulative page faults</h2><p class="text-xs text-zinc-500 mb-3">Live comparison · AWPR vs LRU</p><div class="chart-wrap"><canvas id="timelineChart"></canvas></div></article>
+          <article class="card p-5"><h2 class="font-bold mb-1">Frame allocation scaling</h2><p class="text-xs text-zinc-500 mb-3">Page-fault rate by physical frame count</p><div class="chart-wrap"><canvas id="scalingChart"></canvas></div></article>
+        </section>
+
+        <section class="card p-5 overflow-x-auto">
+          <div class="flex justify-between items-end mb-3"><div><h2 class="font-bold">Benchmark telemetry</h2><p class="text-xs text-zinc-500 mt-1">Exact metrics for the selected seeded trace</p></div><span id="notice" role="status" class="text-xs text-zinc-400"></span></div>
+          <table class="w-full text-xs min-w-[790px]">
+            <thead class="label text-left"><tr><th class="pb-3">Policy</th><th class="pb-3">Faults</th><th class="pb-3">Fault rate</th><th class="pb-3">Dirty writes</th><th class="pb-3">Sink evictions</th><th class="pb-3">TLB hits</th><th class="pb-3">EMAT (ns)</th><th class="pb-3">Tokens/s</th></tr></thead>
+            <tbody id="metricsBody"><tr><td class="text-zinc-500 py-4" colspan="8">Run the comparative benchmark to populate telemetry.</td></tr></tbody>
+          </table>
+        </section>
+      </div>
+    </section>
+  </main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const palette = {FIFO:'#f97316', CLOCK:'#eab308', LRU:'#38bdf8', LFU:'#a78bfa', AWPR:'#34d399'};
+  const state = {sessionId:null, timer:null, results:[], scaling:{}};
+  const chartDefaults = {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{legend:{labels:{color:'#a1a1aa',boxWidth:10,font:{size:10}}}},
+    scales:{x:{ticks:{color:'#a1a1aa'},grid:{color:'#262730'}},y:{beginAtZero:true,ticks:{color:'#a1a1aa'},grid:{color:'#262730'}}}
+  };
+  const charts = {};
+  function chart(id, type, data, options={}) {
+    if (charts[id]) charts[id].destroy();
+    charts[id] = new Chart($(id), {type,data,options:{...structuredClone(chartDefaults),...options}});
+  }
+  for (const [input, output, digits] of [['frames','framesValue',0],['processes','processesValue',0],['traceLength','traceValue',0],['recency','recencyValue',2],['frequency','frequencyValue',2],['semantic','semanticValue',2]]) {
+    $(input).addEventListener('input', () => $(output).textContent = Number($(input).value).toFixed(digits));
+  }
+  function requestBody() {
+    return {
+      frames:Number($('frames').value), processes:Number($('processes').value),
+      trace_length:Number($('traceLength').value), seed:42,
+      awpr_recency_weight:Number($('recency').value),
+      awpr_frequency_weight:Number($('frequency').value),
+      awpr_semantic_weight:Number($('semantic').value)
+    };
+  }
+  function updateTable(results) {
+    $('metricsBody').innerHTML = results.map(row => `<tr class="table-row">
+      <td class="py-3 font-bold" style="color:${palette[row.policy]}">${row.policy}</td>
+      <td class="mono">${row.page_faults.toLocaleString()}</td>
+      <td class="mono">${row.page_fault_rate_pct.toFixed(2)}%</td>
+      <td class="mono">${row.dirty_evictions.toLocaleString()}</td>
+      <td class="mono">${row.sink_evictions.toLocaleString()}</td>
+      <td class="mono">${row.tlb_hit_ratio_pct.toFixed(2)}%</td>
+      <td class="mono">${row.emat_ns.toFixed(2)}</td>
+      <td class="mono">${Math.round(row.token_throughput_per_sec).toLocaleString()}</td>
+    </tr>`).join('');
+  }
+  function updateSummary(results) {
+    const winner = [...results].sort((a,b)=>a.page_faults-b.page_faults)[0];
+    const fastest = [...results].sort((a,b)=>a.emat_ns-b.emat_ns)[0];
+    const awpr = results.find(item=>item.policy==='AWPR');
+    const lru = results.find(item=>item.policy==='LRU');
+    $('winnerFaults').textContent = winner.policy;
+    $('winnerFaultsDetail').textContent = `${winner.page_faults.toLocaleString()} faults · ${winner.page_fault_rate_pct.toFixed(2)}%`;
+    $('bestEmat').textContent = `${fastest.emat_ns.toFixed(1)} ns`;
+    $('sinkCount').textContent = awpr.sink_evictions.toLocaleString();
+    updateTable(results);
+    chart('faultChart','bar',{labels:results.map(r=>r.policy),datasets:[
+      {label:'Page faults',data:results.map(r=>r.page_faults),backgroundColor:results.map(r=>palette[r.policy])},
+      {label:'Sink evictions',data:results.map(r=>r.sink_evictions),backgroundColor:'#64748b'}
+    ]});
+    chart('ematChart','bar',{labels:results.map(r=>r.policy),datasets:[{label:'EMAT (ns)',data:results.map(r=>r.emat_ns),backgroundColor:results.map(r=>palette[r.policy])}]});
+    if (awpr && lru) updateTimeline(awpr.cumulative_faults,lru.cumulative_faults,awpr.num_references);
+    $('progress').textContent = 'Complete';
+    $('traceDetail').textContent = `${results[0].num_references.toLocaleString()} references · ${results[0].num_frames} frames`;
+  }
+  function updateScaling(scaling) {
+    const labels = Object.keys(scaling).map(Number).sort((a,b)=>a-b);
+    const policies = ['FIFO','CLOCK','LRU','LFU','AWPR'];
+    chart('scalingChart','line',{labels,datasets:policies.map(policy=>({
+      label:policy,data:labels.map(frame=>scaling[String(frame)].find(row=>row.policy===policy).page_fault_rate_pct),
+      borderColor:palette[policy],backgroundColor:palette[policy],tension:.25
+    }))});
+  }
+  function drawFrames(frames, title, targetId) {
+    $('memoryCaption').textContent = title;
+    $(targetId).innerHTML = frames.map((page,index) => {
+      if (!page) return `<div class="frame" title="Frame ${index}: free"><span class="text-[9px] text-zinc-600 mono">${index}</span><span class="tenant"></span></div>`;
+      const hue = (page.process_id * 47 + 145) % 360;
+      return `<div class="frame ${page.is_attention_sink?'sink':''}" title="Frame ${index} · P${page.process_id+1} · block ${page.block_index} · utility ${page.utility.toFixed(3)}">
+        <span class="text-[8px] text-zinc-400 mono">${page.page_id}</span><span class="tenant" style="background:hsl(${hue} 70% 55%)"></span></div>`;
+    }).join('');
+  }
+  function updateTimeline(awprFaults, lruFaults, tick) {
+    const labels = Array.from({length:tick},(_,i)=>i+1);
+    chart('timelineChart','line',{labels,datasets:[
+      {label:'AWPR',data:awprFaults,borderColor:palette.AWPR,pointRadius:0,borderWidth:2},
+      {label:'LRU',data:lruFaults,borderColor:palette.LRU,pointRadius:0,borderWidth:2}
+    ]});
+  }
+  $('runButton').addEventListener('click', async () => {
+    $('runButton').disabled = true; $('notice').textContent = 'Running all policies on shared trace…';
+    $('progress').textContent = 'Running';
+    try {
+      const response = await fetch('/api/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(requestBody())});
+      if (!response.ok) throw new Error((await response.json()).detail || response.statusText);
+      const data = await response.json(); state.results=data.results; state.scaling=data.scaling;
+      updateSummary(data.results); updateScaling(data.scaling);
+      $('notice').textContent = 'Benchmark complete · identical seeded trace';
+    } catch (error) { $('notice').textContent = `Error: ${error.message}`; $('progress').textContent='Error'; }
+    finally { $('runButton').disabled = false; }
+  });
+  $('liveButton').addEventListener('click', async () => {
+    if (state.timer) { clearInterval(state.timer); state.timer=null; $('liveButton').textContent='Start live visualizer'; return; }
+    state.sessionId=null; $('liveButton').disabled=true; $('liveButton').textContent='Starting…';
+    const body=requestBody(); let awpr=[],lru=[];
+    async function step() {
+      try {
+        const response=await fetch('/api/live-step',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,session_id:state.sessionId,steps:5})});
+        if(!response.ok) throw new Error((await response.json()).detail||response.statusText);
+        const data=await response.json(); state.sessionId=data.session_id;
+        const a=data.metrics.AWPR, l=data.metrics.LRU;
+        awpr=a.cumulative_faults; lru=l.cumulative_faults;
+        drawFrames(data.frames.AWPR,`AWPR and LRU · tick ${data.tick.toLocaleString()} / ${data.total_ticks.toLocaleString()} · amber frames are attention sinks`,'frameGridAwpr');
+        drawFrames(data.frames.LRU,`AWPR and LRU · tick ${data.tick.toLocaleString()} / ${data.total_ticks.toLocaleString()} · amber frames are attention sinks`,'frameGridLru');
+        updateTimeline(awpr,lru,data.tick);
+        $('progress').textContent=`${Math.round(data.tick/data.total_ticks*100)}%`;
+        $('traceDetail').textContent=`${data.tick.toLocaleString()} / ${data.total_ticks.toLocaleString()} ticks · stepwise AWPR vs LRU`;
+        if(data.done) {
+          clearInterval(state.timer); state.timer=null; state.results=[a,l];
+          updateTable([a,l]); $('sinkCount').textContent=a.sink_evictions.toLocaleString();
+          $('liveButton').textContent='Start live visualizer'; $('notice').textContent='Live trace complete';
+        }
+      } catch(error) {
+        clearInterval(state.timer); state.timer=null; $('notice').textContent=`Error: ${error.message}`;
+        $('liveButton').textContent='Start live visualizer';
+      }
+    }
+    await step(); state.timer=setInterval(step,120);
+    $('liveButton').disabled=false; $('liveButton').textContent='Stop live visualizer';
+  });
+  $('exportButton').addEventListener('click', async () => {
+    $('exportButton').disabled=true; $('notice').textContent='Generating 300-DPI report artifacts…';
+    try {
+      const response=await fetch('/api/export',{method:'POST'});
+      if(!response.ok) throw new Error((await response.json()).detail||response.statusText);
+      const data=await response.json();
+      $('notice').textContent=`Exported ${data.files.length} files in ${data.elapsed_seconds.toFixed(2)}s to results/`;
+    } catch(error) { $('notice').textContent=`Error: ${error.message}`; }
+    finally { $('exportButton').disabled=false; }
+  });
+  fetch('/api/health').then(response=>response.json()).then(data=>{
+    if(data.status==='ok') $('notice').textContent='API connected · ready';
+  }).catch(()=> $('notice').textContent='API connection unavailable');
+</script>
+</body>
+</html>
